@@ -43,10 +43,10 @@ nbits_awg = 13.0# number of bits of AWG
 fs_awg = 500e6  # sampling frequency of the AWG
 fs_dso = 10e9   # sampling frequency of DSO
 
-duration_chunk_awg = 1000e-6; # duration in seconds of one chunk
+duration_chunk_awg = 1000e-6 # duration in seconds of one chunk
 
-npts_min_DSO = 1e6
-time_per_record_DSO = 50e-6
+npts_min_DSO = 5e6 
+time_per_record_DSO = 500e-6 #work at 10GSa/s
 
 awg = awg5000.tektronixAWG5000('TCPIP::10.54.4.47::INSTR')
 scope = dsos204a.agilentDSOS204A('TCPIP0::WINDOWS-6TBN82B.local::hislip0::INSTR')
@@ -69,28 +69,28 @@ ch3 = 2 #for marker
 ch4 = 3
 
 scope.acquisition.type = 'normal'
-scope.acquisition.input_frequency_max = 500e6 #Why is this needed?? And does it actually work??
+# scope.acquisition.input_frequency_max = 500e6 #Why is this needed?? And does it actually work??
 scope.acquisition.number_of_points_minimum = npts_min_DSO
 scope.acquisition.time_per_record = time_per_record_DSO
 print('Sampling rate: {0} GHz'.format(scope.acquisition.sample_rate*gv.facGHz))
 
 #default settings for the channels
-scope.channels[ch1].input_impedance = 1e6 #change to 50 ohm with IQmodulator
+scope.channels[ch1].input_impedance = 50 #change to 50 ohm with IQmodulator
 scope.channels[ch1].coupling = 'dc'
 scope.channels[ch1].offset = 0
-scope.channels[ch1].range = 1
+scope.channels[ch1].range = 2
 scope.channels[ch1].enabled = True
 
-scope.channels[ch2].input_impedance = 1e6 #change to 50 ohm with IQmodulator
+scope.channels[ch2].input_impedance = 50 #change to 50 ohm with IQmodulator
 scope.channels[ch2].coupling = 'dc'
 scope.channels[ch2].offset = 0
-scope.channels[ch2].range = 1
-scope.channels[ch2].enabled = True
+scope.channels[ch2].range = 2
+scope.channels[ch2].enabled = False
 
-scope.channels[ch3].input_impedance = 1e6 #change to 50 ohm with IQmodulator
+scope.channels[ch3].input_impedance = 50 #change to 50 ohm with IQmodulator
 scope.channels[ch3].coupling = 'dc'
 scope.channels[ch3].offset = 0
-scope.channels[ch3].range = 4
+scope.channels[ch3].range = 3
 scope.channels[ch3].enabled = True
 
 scope.channels[ch4].enabled = False
@@ -109,8 +109,9 @@ rrc_filter_coeff_dso = eng.rcosdesign(beta, span, fs_dso/symbol_rate, 'sqrt');
 
 tExecArr = []
 evmArr = []
-jj = 1
-jjmax = 1
+jjmin = 1
+jjmax = 2
+jj = jjmin
 tf = -1
 while True:
     try:
@@ -207,19 +208,19 @@ while True:
         if (plotYorN):
             plt.figure('DSO output for iteration no. '+str(jj))
             if (chenbld[ch1]):
-                plt.plot(facXt*measured_data1.t, facYv*measured_data1.y, label='ch1')
+                plt.plot(facXt*measured_data1.t, facYv*measured_data1.y, color='tab:orange', label='ch1')
                 md1=numpy.array(measured_data1.y)
                 numNaNmd1=numpy.count_nonzero(numpy.isnan(measured_data1.y))
                 perNaNd1 = 100*numNaNmd1/len(measured_data1.y)
                 print('Percentage of NaNs in ch1 acquired data = %.3f ' %(perNaNd1))
             if (chenbld[ch2]):
-                plt.plot(facXt*measured_data2.t, facYv*measured_data2.y, label='ch2')
+                plt.plot(facXt*measured_data2.t, facYv*measured_data2.y, color='tab:green', label='ch2')
                 md2=numpy.array(measured_data2.y)
                 numNaNmd2=numpy.count_nonzero(numpy.isnan(measured_data2.y))
                 perNaNd2 = 100*numNaNmd2/len(measured_data2.y)
                 print('Percentage of NaNs in ch2 acquired data = %.3f ' %(perNaNd2))
             if (chenbld[ch3]):
-                plt.plot(facXt*measured_marker.t, facYv*measured_marker.y, label='marker')
+                plt.plot(facXt*measured_marker.t, facYv*measured_marker.y, color='tab:blue', label='marker')
             if (True in chenbld):
                 plt.ylabel('voltage (mV)',fontsize=20)
                 plt.xlabel('time (us)',fontsize=20)
@@ -227,8 +228,19 @@ while True:
                 plt.grid()
                 plt.show()
 
-        # reconstructed = eng.demod4py(rawdata, fs_dso, fs_awg, symbol_rate, symbol_length, rrc_filter_coeff_awg, rrc_filter_coeff_dso, fcarrier, fpilot_offset, duration_chunk, IQsamples)
-        # print(len(rawdata[0]))
+        
+        print('\nfs_dso before demod using inbuilt functn: {0} GHz'.format(scope.acquisition.sample_rate*gv.facGHz))
+        print('fs_dso based on inverse of mean time diff = %.3f GHz' %(gv.facGHz/numpy.mean(numpy.diff(measured_data1.t))))
+        print('Time per record using inbuilt funct = %.3e sec' %(scope.acquisition.time_per_record))
+        print('Max time acc to downloaded waveform = %.3e sec' %(measured_data1.t[-1]-measured_data1.t[0]))
+        print('Record length using inbuilt funct = %.3e ' %(scope.acquisition.record_length))
+        print('Record length acc to downloaded waveform = %.3e ' %(len(measured_data1.y)))
+        print('Min num points using inbuilt funct = %.3e \n' %(scope.acquisition.number_of_points_minimum))
+
+        if (jj > jjmin): #skip the very first round
+            print('Demodulating the DSO acquired waveform')
+            # reconstructed = eng.demod4py(rawdata, fs_dso, fs_awg, symbol_rate, symbol_length, rrc_filter_coeff_awg, rrc_filter_coeff_dso, fcarrier, fpilot_offset, duration_chunk_dso, IQsamples)
+
         # print(IQsamples[0:4])
 
         ftm = time.clock() #deprecated, change to perf_counter() or process_time()
@@ -246,17 +258,18 @@ while True:
         # print('\nIteration ' + str(jj) + ': Measured EVM = ' + str(numpy.round(tf,3)))
         print('\nIteration ' + str(jj) + ': Execution time = ' + str(numpy.round(ftm-stm,4)) + ' seconds\n')
 
-        resp = input('Quit Matlab?\n')
-        vb=str(resp)
-        if (('y' in vb) or ('Y' in vb)):
-            break
+        if (jjmax == jjmin):
+            resp = input('Quit Matlab?\n')
+            vb=str(resp)
+            if (('y' in vb) or ('Y' in vb)):
+                break
+            else:
+                print('Continuing...')
         else:
-            print('Continuing...')
-
-        # if (jj > jjmax):
-            # break
-        # else:
-            # jj=jj+1
+            if (jj > jjmax):
+                break
+            else:
+                jj=jj+1
 
 
     except KeyboardInterrupt:
