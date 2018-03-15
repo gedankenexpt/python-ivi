@@ -21,8 +21,13 @@ err = io.StringIO()
 # misc/decision variables
 facXt = gv.facus
 facYv = gv.facmV
-plotYorN = True
-
+plotYorN = False
+rmvNaNs = False
+st = 0
+ed = 0
+delta = 1e-4
+perNaNd1 = 0
+perNaNd2 = 0
 #*#############################################################################################*#
 #* Modulation related constants *#
 #*#############################################################################################*#
@@ -41,12 +46,11 @@ fpilot_offset = 100e6; #100e6 # chosen offset in Hz of the pilot with respect to
 #*#############################################################################################*#
 nbits_awg = 13.0# number of bits of AWG
 fs_awg = 500e6  # sampling frequency of the AWG
-fs_dso = 10e9   # sampling frequency of DSO
 
 duration_chunk_awg = 1000e-6 # duration in seconds of one chunk
 
-npts_min_DSO = 5e6 
-time_per_record_DSO = 500e-6 #work at 10GSa/s
+npts_min_DSO = 20e6 
+time_per_record_DSO = 2e-3 #work at 10GSa/s
 
 awg = awg5000.tektronixAWG5000('TCPIP::10.54.4.47::INSTR')
 scope = dsos204a.agilentDSOS204A('TCPIP0::WINDOWS-6TBN82B.local::hislip0::INSTR')
@@ -56,9 +60,10 @@ chI = 0
 chQ = 1
 t = numpy.arange(0,duration_chunk_awg,1/fs_awg)
 
+tDisc=int(0.45*len(t))
 marker = numpy.ones(len(t))
-marker[:100000] = 0
-marker[-100000:] = 0
+marker[:tDisc] = 0
+marker[-tDisc:] = 0
 
 awg.arbitrary.sample_rate = fs_awg
 
@@ -68,6 +73,8 @@ ch2 = 1
 ch3 = 2 #for marker 
 ch4 = 3
 
+deltaTrig = 100e-6
+scope.acquisition.start_time = -deltaTrig
 scope.acquisition.type = 'normal'
 # scope.acquisition.input_frequency_max = 500e6 #Why is this needed?? And does it actually work??
 scope.acquisition.number_of_points_minimum = npts_min_DSO
@@ -95,6 +102,8 @@ scope.channels[ch3].enabled = True
 
 scope.channels[ch4].enabled = False
 
+print('DSO measurement status = %s' %scope.measurement.status)
+
 chenbld=[0,0,0,0]
 chnum=0
 while (chnum<3):
@@ -105,12 +114,11 @@ while (chnum<3):
 beta=0.35;
 span=20.0;
 rrc_filter_coeff_awg = eng.rcosdesign(beta, span, fs_awg/symbol_rate, 'sqrt');
-rrc_filter_coeff_dso = eng.rcosdesign(beta, span, fs_dso/symbol_rate, 'sqrt');
-
+rrc_filter_coeff_dso = 0 #initialize here, create just before demodulation
 tExecArr = []
 evmArr = []
 jjmin = 1
-jjmax = 2
+jjmax = 2 #make jjmax == jjmin if only one iteration is required
 jj = jjmin
 tf = -1
 while True:
@@ -175,8 +183,9 @@ while True:
         # start scope acquisition for acquiring waveforms
         scope.measurement.initiate() 
         # wait until scope is ready
-        while scope.measurement.status == 'in_progress':
+        while scope.measurement.status != 'complete':
             time.sleep(0.1)
+            print('#')
 
         print('Measurement status = %s' %scope.measurement.status)
         print('Sample rate: {0} GHz'.format(scope.acquisition.sample_rate*gv.facGHz))
@@ -184,11 +193,19 @@ while True:
 
         if (chenbld[ch1]):
             measured_data1 = scope.channels[ch1].measurement.fetch_waveform()
+            md1=numpy.array(measured_data1.y)
+            numNaNmd1=numpy.count_nonzero(numpy.isnan(measured_data1.y))
+            perNaNd1 = 100*numNaNmd1/len(measured_data1.y)
+            print('Percentage of NaNs in ch1 acquired data = %.3f ' %(perNaNd1))
         else:
             print('Channel disabled / no data found on DSO channel ' + str(ch1+1))
 
         if (chenbld[ch2]):
             measured_data2 = scope.channels[ch2].measurement.fetch_waveform()
+            md2=numpy.array(measured_data2.y)
+            numNaNmd2=numpy.count_nonzero(numpy.isnan(measured_data2.y))
+            perNaNd2 = 100*numNaNmd2/len(measured_data2.y)
+            print('Percentage of NaNs in ch2 acquired data = %.3f ' %(perNaNd2))
         else:
             print('Channel disabled / no data found on DSO channel ' + str(ch2+1))
 
@@ -209,16 +226,8 @@ while True:
             plt.figure('DSO output for iteration no. '+str(jj))
             if (chenbld[ch1]):
                 plt.plot(facXt*measured_data1.t, facYv*measured_data1.y, color='tab:orange', label='ch1')
-                md1=numpy.array(measured_data1.y)
-                numNaNmd1=numpy.count_nonzero(numpy.isnan(measured_data1.y))
-                perNaNd1 = 100*numNaNmd1/len(measured_data1.y)
-                print('Percentage of NaNs in ch1 acquired data = %.3f ' %(perNaNd1))
             if (chenbld[ch2]):
                 plt.plot(facXt*measured_data2.t, facYv*measured_data2.y, color='tab:green', label='ch2')
-                md2=numpy.array(measured_data2.y)
-                numNaNmd2=numpy.count_nonzero(numpy.isnan(measured_data2.y))
-                perNaNd2 = 100*numNaNmd2/len(measured_data2.y)
-                print('Percentage of NaNs in ch2 acquired data = %.3f ' %(perNaNd2))
             if (chenbld[ch3]):
                 plt.plot(facXt*measured_marker.t, facYv*measured_marker.y, color='tab:blue', label='marker')
             if (True in chenbld):
@@ -228,18 +237,47 @@ while True:
                 plt.grid()
                 plt.show()
 
-        
-        print('\nfs_dso before demod using inbuilt functn: {0} GHz'.format(scope.acquisition.sample_rate*gv.facGHz))
-        print('fs_dso based on inverse of mean time diff = %.3f GHz' %(gv.facGHz/numpy.mean(numpy.diff(measured_data1.t))))
+        fs_dso = scope.acquisition.sample_rate
+        fs_dso2 = 1/numpy.mean(numpy.diff(measured_data1.t))
+        delfsDSO = abs(1-fs_dso/fs_dso2)
+        if (delfsDSO < delta):
+            fs_dso=float(int(fs_dso*gv.facGHz)/gv.facGHz)
+
+        print('\nfs_dso before demod using inbuilt functn: {0} GHz'.format(fs_dso*gv.facGHz))
+        print('fs_dso based on inverse of mean time diff = %.3f GHz' %(gv.facGHz*fs_dso2))
         print('Time per record using inbuilt funct = %.3e sec' %(scope.acquisition.time_per_record))
         print('Max time acc to downloaded waveform = %.3e sec' %(measured_data1.t[-1]-measured_data1.t[0]))
         print('Record length using inbuilt funct = %.3e ' %(scope.acquisition.record_length))
         print('Record length acc to downloaded waveform = %.3e ' %(len(measured_data1.y)))
         print('Min num points using inbuilt funct = %.3e \n' %(scope.acquisition.number_of_points_minimum))
+        print('acq starting time using inbuilt funct = %.3e \n' %(scope.acquisition.start_time))
 
-        if (jj > jjmin): #skip the very first round
-            print('Demodulating the DSO acquired waveform')
-            # reconstructed = eng.demod4py(rawdata, fs_dso, fs_awg, symbol_rate, symbol_length, rrc_filter_coeff_awg, rrc_filter_coeff_dso, fcarrier, fpilot_offset, duration_chunk_dso, IQsamples)
+        # remove nans to prevent problems in demodulation
+        mrkrWOnan = measured_marker.y[~numpy.isnan(measured_marker.y)]
+        if (rmvNaNs):
+            measdata1 = measured_data1.y[~numpy.isnan(measured_data1.y)]
+        else:
+            measdata1 = measured_data1.y
+
+        trig_indices=numpy.flatnonzero(numpy.diff(mrkrWOnan > 0.5))
+
+        st = trig_indices[0]
+        ed = trig_indices[2]
+        print('Waveform-to-be-analyzed start index = %d and data and marker time = %.3e' %(st,measured_marker.t[st]))
+        print('Waveform-to-be-analyzed finish index = %d and data and marker time = %.3e' %(ed,measured_marker.t[ed]))
+        duration_chunk_dso=measured_marker.t[ed]-measured_marker.t[st]
+        if (rmvNaNs):
+            duration_chunk_dso = duration_chunk_dso - (len(measured_data1.y)-len(measdata1))/fs_dso
+        print('Chunk duration to be demodulated = %.3e\n' %(duration_chunk_dso))
+
+        checksB4demod = (ed > st) and (jj > jjmin) and (delfsDSO < delta) and (numpy.sign(duration_chunk_dso) > 0)
+        if (checksB4demod): #skip the very first round
+            print('Iteration %d : Demodulating the DSO acquired waveform' %jj)
+            duration_chunk_dso = float(duration_chunk_dso)
+            sps = float(int(fs_dso/symbol_rate))
+            rrc_filter_coeff_dso = eng.rcosdesign(beta, span, sps, 'sqrt');
+            rawdata = matlab.double(list(measdata1[st:ed]))
+            reconstructed = eng.demod4py(rawdata, fs_dso, fs_awg, symbol_rate, symbol_length, rrc_filter_coeff_awg, rrc_filter_coeff_dso, fcarrier, fpilot_offset, duration_chunk_dso, IQsamples, nargout=1)
 
         # print(IQsamples[0:4])
 
