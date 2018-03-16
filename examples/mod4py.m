@@ -20,7 +20,8 @@ subdirname='Apil=0.1_beta=0.35_span=20';%Use '' if data is not inside any sub di
 
 %% initialize the RNG
 disp('Setting the RNG')
-rng(1234568);
+rng('shuffle','multFibonacci')
+% rng(1234568);
 
 %% define root raised cosine filter
 beta=0.35;

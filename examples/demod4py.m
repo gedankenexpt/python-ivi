@@ -1,4 +1,4 @@
-function demodulated = demod4py(data, fs_dso, fs_awg, symbol_rate, symbol_length, ...
+function [rmsEVM2, demodulated] = demod4py(data, fs_dso, fs_awg, symbol_rate, symbol_length, ...
     rrc_filter_awg, rrc_filter_dso, carrier, pilot_offset, chunk_length, original_samples)
 % data: 1d array of raw data
 % fs_dso: sampling rate of DSO in Hz
@@ -16,23 +16,23 @@ disp('Inside demodulate function now')
 
 nancond=isnan(data);
 if (sum(nancond) > 0)
-    disp('replacing NaNs by zeros in the DSO data')
+    disp('>>>> Replacing NaNs by zeros in the DSO data')
     data(nancond)=0;
 end
 
 if (chunk_length > symbol_length/symbol_rate) %sanity check
-    warning('Limiting chunk duration to max possible value')
+    warning('>>>> Limiting chunk duration to max possible value')
     chunk_length = symbol_length/symbol_rate; %choose the maximal chunk duration possible 
 end
 
 % list to vectors
 if (size(data,2) ~= 1)
-    disp('transposing data before demodulating')
+    disp('>>>> Transposing data before demodulating')
     data = transpose(data);
 end
 
 if (size(original_samples,2) ~= 1)
-    disp('transposing IQsamples before demodulating')
+    disp('>>>> Transposing IQsamples before demodulating')
     original_samples = transpose(original_samples);
 end
 
@@ -55,7 +55,7 @@ t = (0:1/fs_dso:(numel(data)-1)/fs_dso)';
 data = reshape(data, N, Nbins);
 t = reshape(t, N, Nbins);
 
-disp('Extracting pilot and estimate frequency and phase')
+disp('>>>> Extracting pilot and estimate frequency and phase')
 %% Extract pilot and estimate frequency and phase
 Hd = pilot_bandpass(fs_dso, carrier+pilot_offset, 2e6, 50e6);
 Hd.arithmetic='double';
@@ -81,7 +81,7 @@ pilot_phases = unwrap(mean(pilot_phases(floor(N/10):end,:), 1)); % just drop som
 %pilot_phases = unwrap(mean(angle(pilot_down), 1)); % uncut version
 
 
-disp('Down-converting quantum signal')
+disp('>>>> Downconverting quantum signal')
 %% Down-convert quantum signal
 data = data - mean(data, 1);
 quantum = data .* exp(1j*2*pi*(pilot_frequencies-pilot_offset).*t(:,1));
